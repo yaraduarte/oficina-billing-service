@@ -1,0 +1,43 @@
+services:
+  billing:
+    build: .
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: development
+      APP_ENV: local
+      JWT_SECRET: dev-secret
+      RABBITMQ_URL: amqp://oficina:oficina123@rabbitmq:5672
+      AWS_REGION: us-east-1
+      DYNAMODB_ENDPOINT: http://dynamodb:8000
+      DYNAMODB_AUTO_CREATE: "true"
+      # Credenciais de TESTE do Mercado Pago (conta vendedora de teste). Nunca commitar valores reais.
+      MERCADO_PAGO_ACCESS_TOKEN: ${MERCADO_PAGO_ACCESS_TOKEN:-}
+      MERCADO_PAGO_WEBHOOK_SECRET: ${MERCADO_PAGO_WEBHOOK_SECRET:-}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      dynamodb:
+        condition: service_started
+
+  # DynamoDB Local (em produção: tabelas criadas pelo Terraform do oficina-infra-db)
+  dynamodb:
+    image: amazon/dynamodb-local:2.5.2
+    command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
+    ports:
+      - "8000:8000"
+
+  # Mesmo broker do os-service (exchanges oficina.commands / oficina.events)
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: oficina
+      RABBITMQ_DEFAULT_PASS: oficina123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
