@@ -71,9 +71,10 @@ export class MercadoPagoGateway implements IPaymentGateway {
           currency_id: 'BRL',
           category_id: item.kind === 'SERVICE' ? 'services' : 'others',
         })),
-        payer: { email: quote.clientEmail },
+        // Sem payer.email: o Checkout Pro identifica o pagador no login. Com credenciais de teste, um e-mail que não é
+        // de usuário de teste faz o MP recusar ("uma das partes é de teste"); o e-mail fica só na metadata.
         external_reference: paymentId,
-        metadata: { quote_id: quote.id, os_id: quote.osId, saga_id: quote.sagaId },
+        metadata: { quote_id: quote.id, os_id: quote.osId, saga_id: quote.sagaId, client_email: quote.clientEmail },
         expires: true,
         expiration_date_to: expiresAt,
         ...(this.settings.notificationUrl ? { notification_url: this.settings.notificationUrl } : {}),

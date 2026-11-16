@@ -51,9 +51,9 @@ describe('MercadoPagoGateway (Checkout Pro)', () => {
       auto_return: 'approved',
       expires: true,
       expiration_date_to: quote.expiresAt,
-      payer: { email: 'c@t.com' },
-      metadata: { quote_id: 'q-1', os_id: 'os-1', saga_id: 's-1' },
+      metadata: { quote_id: 'q-1', os_id: 'os-1', saga_id: 's-1', client_email: 'c@t.com' },
     });
+    expect(body).not.toHaveProperty('payer');
     expect(body.items).toEqual([
       expect.objectContaining({ id: 's-1', unit_price: 150, quantity: 1, currency_id: 'BRL', category_id: 'services' }),
       expect.objectContaining({ id: 'p-1', unit_price: 50, quantity: 2, category_id: 'others' }),
