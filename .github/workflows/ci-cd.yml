@@ -3,7 +3,7 @@ name: CI/CD Pipeline
 # Fluxo de branches:
 #   feature/*  --PR-->  homolog  (deploy automático em HOMOLOGAÇÃO, namespace oficina-hml)
 #   homolog    --PR-->  main     (deploy automático em PRODUÇÃO, namespace oficina-marimb0ndo)
-# main e homolog são protegidas: merge só via PR com o check "Testes" verde.
+# main e homolog são protegidas: merge só via PR com os checks "Testes" e "Qualidade (SonarQube)" verdes.
 
 on:
   push:
@@ -44,10 +44,65 @@ jobs:
           name: coverage
           path: coverage/
 
+  # SonarQube efêmero: sobe o servidor como service container, analisa o código com a
+  # cobertura do job de testes e falha o pipeline se o quality gate reprovar.
+  quality:
+    name: Qualidade (SonarQube)
+    runs-on: ubuntu-latest
+    needs: test
+    services:
+      sonarqube:
+        image: sonarqube:10.7.0-community
+        env:
+          SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: 'true'
+        ports:
+          - 9000:9000
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+      - name: Aguardar SonarQube
+        run: |
+          for i in $(seq 1 60); do
+            status=$(curl -s http://localhost:9000/api/system/status | sed -E 's/.*"status":"([A-Z_]+)".*/\1/')
+            [ "$status" = "UP" ] && echo "SonarQube UP" && exit 0
+            echo "status=$status ($i/60)"; sleep 5
+          done
+          exit 1
+      - name: Gerar token de análise
+        id: token
+        run: |
+          TOKEN=$(curl -s -u admin:admin -X POST "http://localhost:9000/api/user_tokens/generate" \
+            -d "name=ci-${GITHUB_RUN_ID}" -d "type=GLOBAL_ANALYSIS_TOKEN" | sed -E 's/.*"token":"([^"]+)".*/\1/')
+          [ -n "$TOKEN" ] || { echo "falha ao gerar token"; exit 1; }
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+      - name: Análise SonarQube (aguarda o quality gate)
+        run: |
+          docker run --rm --network host -v "$PWD:/usr/src" -w /usr/src \
+            -e SONAR_HOST_URL=http://localhost:9000 -e SONAR_TOKEN="${{ steps.token.outputs.token }}" \
+            sonarsource/sonar-scanner-cli:11.1 \
+            -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300
+      - name: Resumo da qualidade
+        if: always()
+        run: |
+          KEY=$(grep '^sonar.projectKey=' sonar-project.properties | cut -d= -f2)
+          M=$(curl -s -u admin:admin \
+            "http://localhost:9000/api/measures/component?component=${KEY}&metricKeys=alert_status,bugs,vulnerabilities,code_smells,coverage,duplicated_lines_density,security_hotspots,ncloc")
+          echo "### SonarQube — ${KEY}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Métrica | Valor |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "$M" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{for(const m of JSON.parse(s).component.measures)console.log('| '+m.metric+' | '+m.value+' |')}catch{console.log('| erro | sem métricas |')}})" >> "$GITHUB_STEP_SUMMARY"
+
   build-and-push:
     name: Build e Push Docker
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, quality]
     if: github.event_name == 'push'
     outputs:
       # So a tag: o nome da imagem contem o DOCKER_USERNAME e o GitHub descarta outputs com valor de secret
