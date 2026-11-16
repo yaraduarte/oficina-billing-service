@@ -1,0 +1,214 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Oficina Marimb0ndo — Billing Service",
+    "version": "1.0.0",
+    "description": "Orçamentos e pagamentos (Mercado Pago Checkout Pro). Participa da Saga orquestrada pelo os-service: recebe comandos via RabbitMQ (billing.commands) e publica eventos billing.* na exchange oficina.events."
+  },
+  "servers": [
+    {
+      "url": "/billing",
+      "description": "Via API Gateway (/billing)"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Orçamentos"
+    },
+    {
+      "name": "Webhooks"
+    }
+  ],
+  "paths": {
+    "/webhooks/mercadopago": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Notificação de pagamento do Mercado Pago",
+        "description": "Validada pelo header x-signature (HMAC). O status é sempre consultado na API do Mercado Pago.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "type",
+            "schema": {
+              "type": "string",
+              "example": "payment"
+            }
+          },
+          {
+            "in": "query",
+            "name": "data.id",
+            "schema": {
+              "type": "string",
+              "example": "1234567890"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Processado ou ignorado"
+          },
+          "401": {
+            "description": "Assinatura inválida"
+          }
+        }
+      }
+    },
+    "/orcamentos": {
+      "get": {
+        "summary": "Lista orçamentos de uma OS",
+        "tags": [
+          "Orçamentos"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "osId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lista (clientes veem apenas os próprios)"
+          },
+          "422": {
+            "description": "osId obrigatório"
+          }
+        }
+      }
+    },
+    "/orcamentos/{id}": {
+      "get": {
+        "summary": "Detalha um orçamento e o pagamento associado",
+        "tags": [
+          "Orçamentos"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Orçamento encontrado"
+          },
+          "403": {
+            "description": "Orçamento de outro cliente"
+          },
+          "404": {
+            "description": "Não encontrado"
+          }
+        }
+      }
+    },
+    "/orcamentos/{id}/aprovar": {
+      "post": {
+        "summary": "Aprova o orçamento e gera o link de pagamento (Mercado Pago Checkout Pro)",
+        "description": "Publica billing.OrcamentoAprovado. O cliente paga no link `checkoutUrl`; a confirmação chega pelo webhook.",
+        "tags": [
+          "Orçamentos"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aprovado — retorna paymentId e checkoutUrl"
+          },
+          "409": {
+            "description": "Orçamento já decidido"
+          },
+          "422": {
+            "description": "Orçamento expirado"
+          }
+        }
+      }
+    },
+    "/orcamentos/{id}/recusar": {
+      "post": {
+        "summary": "Recusa o orçamento (a Saga cancela a OS)",
+        "tags": [
+          "Orçamentos"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "example": "Valor acima do esperado"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Recusado"
+          },
+          "409": {
+            "description": "Orçamento já decidido"
+          }
+        }
+      }
+    }
+  }
+}
