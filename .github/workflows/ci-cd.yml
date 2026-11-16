@@ -50,16 +50,17 @@ jobs:
     needs: test
     if: github.event_name == 'push'
     outputs:
-      image: ${{ steps.tag.outputs.image }}
+      # So a tag: o nome da imagem contem o DOCKER_USERNAME e o GitHub descarta outputs com valor de secret
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - id: tag
         run: |
           if [ "${GITHUB_REF_NAME}" = "main" ]; then
-            echo "image=${DOCKER_IMAGE}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
             echo "tags=${DOCKER_IMAGE}:latest,${DOCKER_IMAGE}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           else
-            echo "image=${DOCKER_IMAGE}:hml-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "tag=hml-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
             echo "tags=${DOCKER_IMAGE}:hml-latest,${DOCKER_IMAGE}:hml-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
           fi
       - uses: docker/login-action@v3
@@ -94,7 +95,7 @@ jobs:
       - name: Aplicar no k3s
         uses: appleboy/ssh-action@v1.0.3
         env:
-          IMAGE: ${{ needs.build-and-push.outputs.image }}
+          IMAGE: ${{ env.DOCKER_IMAGE }}:${{ needs.build-and-push.outputs.tag }}
           NAMESPACE: ${{ env.NAMESPACE }}
           APP_ENV: ${{ github.ref_name == 'main' && 'production' || 'homolog' }}
           MERCADO_PAGO_ACCESS_TOKEN: ${{ secrets.MERCADO_PAGO_ACCESS_TOKEN }}
