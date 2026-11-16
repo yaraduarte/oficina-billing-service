@@ -1,0 +1,115 @@
+# billing-service no k3s. Aplicado pelo pipeline via scripts/deploy.sh, que substitui:
+#   __NAMESPACE__  oficina-marimb0ndo (produção) | oficina-hml (homologação)
+#   __IMAGE__      yaraduarte/oficina-billing-service:<sha> | :hml-<sha>
+# ConfigMap e Secret (billing-config / billing-secret) são criados pelo script.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-service
+  namespace: __NAMESPACE__
+  labels:
+    app: billing-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: billing-service
+  template:
+    metadata:
+      labels:
+        app: billing-service
+    spec:
+      containers:
+        - name: billing-service
+          image: __IMAGE__
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: billing-config
+            - secretRef:
+                name: billing-secret
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: billing-service
+  namespace: __NAMESPACE__
+spec:
+  selector:
+    app: billing-service
+  ports:
+    - port: 80
+      targetPort: 3000
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: billing-service
+  namespace: __NAMESPACE__
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: billing-service
+  minReplicas: 1
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# Ingress Traefik: /billing/* → billing-service (prefixo removido antes do pod).
+# O API Gateway encaminha /billing/{proxy+} para http://<EC2>/billing/{proxy}.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-billing
+  namespace: __NAMESPACE__
+spec:
+  stripPrefix:
+    prefixes:
+      - /billing
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: billing-service
+  namespace: __NAMESPACE__
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: __NAMESPACE__-strip-billing@kubernetescrd
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /billing
+            pathType: Prefix
+            backend:
+              service:
+                name: billing-service
+                port:
+                  number: 80
