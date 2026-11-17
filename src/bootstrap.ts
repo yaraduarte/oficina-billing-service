@@ -9,6 +9,7 @@ import { RabbitMQClient } from './infrastructure/messaging/RabbitMQClient';
 import { CommandConsumer } from './infrastructure/messaging/CommandConsumer';
 import { BILLING_COMMANDS_QUEUE } from './infrastructure/messaging/topology';
 import { createApp } from './infrastructure/web/app';
+import { PeriodicJob } from './infrastructure/scheduling/PeriodicJob';
 
 const logger: Logger = {
   info: (msg, meta) => console.log(`[Billing] ${msg}`, meta ? JSON.stringify(meta) : ''),
@@ -47,10 +48,14 @@ export async function bootstrap(config: Config, deps: { rabbit?: RabbitMQClient 
     { quoteValidityHours: config.quoteValidityHours, logger },
   );
 
+  let reconciler: PeriodicJob | undefined;
   if (rabbit) {
     const consumer = new CommandConsumer(new CommandDispatcher(billing, logger));
     await rabbit.consume(BILLING_COMMANDS_QUEUE, (msg, acks) => consumer.onMessage(msg, acks));
     logger.info(`Consumindo ${BILLING_COMMANDS_QUEUE}`);
+    // Rede de segurança do webhook: confirma pagamentos consultando o Mercado Pago periodicamente
+    reconciler = new PeriodicJob('Reconciliação', () => billing.reconcilePendingPayments(), config.paymentReconcileIntervalMs, logger);
+    reconciler.start();
   }
 
   const app = createApp({
@@ -65,6 +70,7 @@ export async function bootstrap(config: Config, deps: { rabbit?: RabbitMQClient 
   return {
     app,
     stop: async () => {
+      reconciler?.stop();
       await rabbit?.close();
     },
   };

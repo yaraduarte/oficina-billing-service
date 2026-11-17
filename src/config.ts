@@ -13,6 +13,8 @@ export interface Config {
   originVerifySecret?: string;
   rabbitUrl?: string;
   quoteValidityHours: number;
+  /** Intervalo da reconciliação de pagamentos pendentes com o Mercado Pago (0 desliga). */
+  paymentReconcileIntervalMs: number;
   dynamo: { region: string; endpoint?: string; quotesTable: string; paymentsTable: string; autoCreateTables: boolean };
   mercadoPago: { accessToken: string; webhookSecret?: string; notificationUrl?: string; backUrl?: string };
 }
@@ -26,6 +28,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     originVerifySecret: env.ORIGIN_VERIFY_SECRET || undefined,
     rabbitUrl: env.RABBITMQ_URL || undefined,
     quoteValidityHours: Number(env.QUOTE_VALIDITY_HOURS ?? 72),
+    paymentReconcileIntervalMs: Number(env.PAYMENT_RECONCILE_INTERVAL_MS ?? 30000),
     dynamo: {
       region: env.AWS_REGION ?? 'us-east-1',
       endpoint: env.DYNAMODB_ENDPOINT || undefined,

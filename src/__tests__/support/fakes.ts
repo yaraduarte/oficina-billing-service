@@ -49,6 +49,9 @@ export class InMemoryPaymentRepository implements IPaymentRepository {
     const p = [...this.items.values()].find((x) => x.quoteId === quoteId);
     return p ? new Payment(clone(p)) : null;
   }
+  async findPending(limit: number) {
+    return [...this.items.values()].filter((p) => p.status === PaymentStatus.PENDENTE).slice(0, limit).map((p) => new Payment(clone(p)));
+  }
   async create(payment: Payment) {
     if (this.items.has(payment.id)) return false;
     this.items.set(payment.id, new Payment(clone(payment)));
@@ -77,6 +80,11 @@ export class FakeGateway implements IPaymentGateway {
     const p = this.payments.get(id);
     if (!p) throw new Error(`pagamento ${id} não existe no MP`);
     return p;
+  }
+  searchError: Error | null = null;
+  async findPaymentsByReference(ref: string) {
+    if (this.searchError) throw this.searchError;
+    return [...this.payments.values()].filter((p) => p.externalReference === ref).reverse();
   }
   async refund(id: string, key: string) {
     if (this.refundError) throw this.refundError;
