@@ -1,5 +1,5 @@
 import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { Quote, QuoteStatus } from '../../domain/Quote';
 import { Payment, PaymentStatus } from '../../domain/Payment';
 import { IPaymentRepository, IQuoteRepository } from '../../application/ports';
@@ -96,6 +96,26 @@ export class DynamoPaymentRepository implements IPaymentRepository {
     );
     const item = res.Items?.[0];
     return item ? new Payment(item as Payment) : null;
+  }
+
+  /** Scan filtrado: o volume de pagamentos pendentes é pequeno (só checkouts em aberto). */
+  async findPending(limit: number) {
+    const found: Payment[] = [];
+    let startKey: Record<string, unknown> | undefined;
+    do {
+      const res = await this.client.send(
+        new ScanCommand({
+          TableName: this.table,
+          FilterExpression: '#s = :pending',
+          ExpressionAttributeNames: { '#s': 'status' },
+          ExpressionAttributeValues: { ':pending': PaymentStatus.PENDENTE },
+          ExclusiveStartKey: startKey,
+        }),
+      );
+      for (const item of res.Items ?? []) found.push(new Payment(item as Payment));
+      startKey = res.LastEvaluatedKey;
+    } while (startKey && found.length < limit);
+    return found.slice(0, limit);
   }
 
   create(payment: Payment) {

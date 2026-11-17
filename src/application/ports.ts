@@ -15,6 +15,8 @@ export interface IQuoteRepository {
 export interface IPaymentRepository {
   findById(id: string): Promise<Payment | null>;
   findByQuoteId(quoteId: string): Promise<Payment | null>;
+  /** Pagamentos ainda aguardando o cliente (usados pela reconciliação com o Mercado Pago). */
+  findPending(limit: number): Promise<Payment[]>;
   create(payment: Payment): Promise<boolean>;
   saveIfStatus(payment: Payment, expected: PaymentStatus[]): Promise<boolean>;
 }
@@ -55,6 +57,8 @@ export class PermanentGatewayError extends Error {
 export interface IPaymentGateway {
   createCheckout(request: CheckoutRequest): Promise<CheckoutResult>;
   getPayment(gatewayPaymentId: string): Promise<GatewayPayment>;
+  /** Pagamentos do Mercado Pago com o external_reference informado (mais recentes primeiro). */
+  findPaymentsByReference(externalReference: string): Promise<GatewayPayment[]>;
   refund(gatewayPaymentId: string, idempotencyKey: string): Promise<RefundResult>;
 }
 
