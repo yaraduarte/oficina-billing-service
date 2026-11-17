@@ -313,6 +313,32 @@ export class BillingService {
     return { handled: false, status: mp.status };
   }
 
+  /**
+   * Reconciliação: consulta no Mercado Pago os pagamentos ainda PENDENTES e aplica o mesmo
+   * fluxo do webhook. Garante a confirmação mesmo se a notificação não chegar ou for recusada
+   * (ex.: assinatura de outra aplicação). O MP continua sendo a fonte da verdade.
+   */
+  async reconcilePendingPayments(limit = 50): Promise<{ checked: number; updated: number }> {
+    const pending = await this.payments.findPending(limit);
+    let updated = 0;
+    for (const payment of pending) {
+      try {
+        const found = await this.gateway.findPaymentsByReference(payment.id);
+        const decisive =
+          found.find((p) => APPROVED_MP_STATUSES.includes(p.status)) ?? found.find((p) => REFUSED_MP_STATUSES.includes(p.status));
+        if (!decisive) continue;
+        const result = await this.processPaymentNotification(decisive.id);
+        if (result.handled) {
+          updated += 1;
+          this.logger.info('Pagamento reconciliado com o Mercado Pago', { paymentId: payment.id, status: result.status });
+        }
+      } catch (err) {
+        this.logger.warn('Falha ao reconciliar pagamento', { paymentId: payment.id, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return { checked: pending.length, updated };
+  }
+
   // ---------------------------------------------------------------------------
 
   private assertCanAccess(quote: Quote, requester: Requester): void {

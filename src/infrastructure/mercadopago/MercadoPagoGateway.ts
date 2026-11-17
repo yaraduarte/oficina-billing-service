@@ -21,7 +21,7 @@ export interface MercadoPagoSettings {
 /** Clientes do SDK, injetáveis para teste. */
 export interface MercadoPagoClients {
   preference: Pick<Preference, 'create'>;
-  payment: Pick<MpPayment, 'get'>;
+  payment: Pick<MpPayment, 'get' | 'search'>;
   refund: Pick<PaymentRefund, 'total'>;
 }
 
@@ -35,6 +35,24 @@ export function createMercadoPagoClients(settings: MercadoPagoSettings): Mercado
 }
 
 const toCents = (value: number | undefined) => Math.round((value ?? 0) * 100);
+
+interface MpPaymentLike {
+  id?: number | string;
+  status?: string;
+  status_detail?: string;
+  external_reference?: string;
+  transaction_amount?: number;
+}
+
+function toGatewayPayment(p: MpPaymentLike, fallbackId: string): GatewayPayment {
+  return {
+    id: String(p.id ?? fallbackId),
+    status: p.status ?? 'unknown',
+    statusDetail: p.status_detail ?? null,
+    externalReference: p.external_reference ?? null,
+    amountCents: toCents(p.transaction_amount),
+  };
+}
 
 /** Status HTTP do erro do SDK, quando disponível. */
 function httpStatusOf(err: unknown): number | undefined {
@@ -92,13 +110,14 @@ export class MercadoPagoGateway implements IPaymentGateway {
 
   async getPayment(gatewayPaymentId: string): Promise<GatewayPayment> {
     const p = await this.clients.payment.get({ id: gatewayPaymentId });
-    return {
-      id: String(p.id ?? gatewayPaymentId),
-      status: p.status ?? 'unknown',
-      statusDetail: p.status_detail ?? null,
-      externalReference: p.external_reference ?? null,
-      amountCents: toCents(p.transaction_amount),
-    };
+    return toGatewayPayment(p, gatewayPaymentId);
+  }
+
+  async findPaymentsByReference(externalReference: string): Promise<GatewayPayment[]> {
+    const res = await this.clients.payment.search({
+      options: { external_reference: externalReference, sort: 'date_created', criteria: 'desc' },
+    });
+    return (res.results ?? []).map((p) => toGatewayPayment(p, ''));
   }
 
   async refund(gatewayPaymentId: string, idempotencyKey: string): Promise<RefundResult> {
